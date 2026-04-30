@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# 作業ファイル（各プロジェクトのローカル素材）
+*.m4a
+*.mp3
+*.mp4
+*.wav
+*_raw_*.txt
+*_transcript_*.txt
+
+# 機密・個人情報
+.env.local
+secrets.txt
