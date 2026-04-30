@@ -10,7 +10,7 @@
 
 **AI Editorial OS** is a role-based prompt system for Claude, built by a Japanese journalist with 30+ years of experience and 500+ articles/year.
 
-Each role (researcher, writer, reviewer, etc.) acts as a specialized editorial agent. Together they form a complete editorial team inside Claude Code — or Claude.ai.
+Each role (researcher, writer, reviewer, etc.) acts as a specialized Japanese editorial agent. Together they form a complete editorial team inside Claude Code — or Claude.ai.
 
 **Two versions included:**
 - `classic/CLAUDE.md` — paste into Claude.ai and start immediately, no setup needed
