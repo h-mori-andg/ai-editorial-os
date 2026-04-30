@@ -24,7 +24,7 @@ Each role (researcher, writer, reviewer, etc.) acts as a specialized Japanese ed
 
 取材・文字起こし・執筆・校正・公開の全工程を、**役割別AIエージェントが分担する編集環境**です。
 
-ジャーナリストとして30年・年間500本以上の記事制作から蒸留したルールを、誰でも使えるかたちで公開します。記者ひとりで回していたワークフローが、Claude Code のサブエージェント機能によって「編集部」になりました。
+テック・ビジネス系の編集記者として30年・年間500本以上（2025年）の記事制作から蒸留したルールを、誰でも使えるかたちで公開します。「編集部」のワークフローをClaude Code のサブエージェント機能によって記者ひとり、または小さなチームで回すことを目指します。
 
 ---
 
@@ -40,6 +40,8 @@ Each role (researcher, writer, reviewer, etc.) acts as a specialized Japanese ed
 ---
 
 ## Classic版 と Pipeline版
+
+**Classic版** は `classic/CLAUDE.md` を Claude.ai・ChatGPT・Gemini などのチャットインターフェースに貼り付けて使うプロンプト集です。インストール不要で、今すぐ始められます。**Pipeline版** は Claude Code 上でロール別エージェントを動かすフル構成です。
 
 | | Classic版 | Pipeline版 |
 |--|----------|-----------|
