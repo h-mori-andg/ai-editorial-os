@@ -197,6 +197,14 @@ cp -r presets/_template presets/your-media-name
 
 ---
 
+## 免責事項 / Disclaimer
+
+本プロジェクトは現状有姿（as-is）で提供されます。使用によって生じたいかなる損害・トラブル・成果物の品質についても、作者および株式会社アンジーは責任を負いません。AI の出力は必ず人間が確認・判断してください。
+
+This project is provided "as is" without warranty of any kind. The author and ANDG Co., Ltd. are not responsible for any damages, issues, or output quality arising from the use of this software. Always review and verify AI-generated content before use.
+
+---
+
 ## ライセンス
 
 MIT License
