@@ -148,42 +148,54 @@ def transcribe_english(audio_path):
     transcribe = boto3.client("transcribe", region_name=AWS_REGION)
 
     s3_key = f"audio/{uuid.uuid4().hex}_{os.path.basename(audio_path)}"
-    print("  S3にアップロード中...")
-    s3.upload_file(audio_path, TRANSCRIBE_S3_BUCKET, s3_key)
-
     job_name = f"transcribe-{uuid.uuid4().hex[:12]}"
     output_key = f"output/{job_name}.json"
-    ext = audio_path.rsplit(".", 1)[-1].lower()
-    media_format = "mp4" if ext == "m4a" else ext
+    uploaded = False
 
-    transcribe.start_transcription_job(
-        TranscriptionJobName=job_name,
-        Media={"MediaFileUri": f"s3://{TRANSCRIBE_S3_BUCKET}/{s3_key}"},
-        MediaFormat=media_format,
-        LanguageCode="en-US",
-        OutputBucketName=TRANSCRIBE_S3_BUCKET,
-        OutputKey=output_key,
-        Settings={"ShowSpeakerLabels": True, "MaxSpeakerLabels": 10}
-    )
-    print(f"  ジョブ名: {job_name}")
+    try:
+        print("  S3にアップロード中...")
+        s3.upload_file(audio_path, TRANSCRIBE_S3_BUCKET, s3_key)
+        uploaded = True
 
-    while True:
-        time.sleep(5)
-        job = transcribe.get_transcription_job(TranscriptionJobName=job_name)
-        status = job["TranscriptionJob"]["TranscriptionJobStatus"]
-        print(f"  ステータス: {status}")
-        if status == "COMPLETED":
-            break
-        elif status == "FAILED":
-            raise Exception(f"Transcribeエラー: {job}")
+        ext = audio_path.rsplit(".", 1)[-1].lower()
+        media_format = "mp4" if ext == "m4a" else ext
 
-    result_obj = s3.get_object(Bucket=TRANSCRIBE_S3_BUCKET, Key=output_key)
-    result = json.loads(result_obj["Body"].read())
+        transcribe.start_transcription_job(
+            TranscriptionJobName=job_name,
+            Media={"MediaFileUri": f"s3://{TRANSCRIBE_S3_BUCKET}/{s3_key}"},
+            MediaFormat=media_format,
+            LanguageCode="en-US",
+            OutputBucketName=TRANSCRIBE_S3_BUCKET,
+            OutputKey=output_key,
+            Settings={"ShowSpeakerLabels": True, "MaxSpeakerLabels": 10}
+        )
+        print(f"  ジョブ名: {job_name}")
 
-    s3.delete_object(Bucket=TRANSCRIBE_S3_BUCKET, Key=s3_key)
-    s3.delete_object(Bucket=TRANSCRIBE_S3_BUCKET, Key=output_key)
-    s3.delete_object(Bucket=TRANSCRIBE_S3_BUCKET, Key="output/.write_access_check_file.temp")
-    print("  S3ファイル削除完了")
+        while True:
+            time.sleep(5)
+            job = transcribe.get_transcription_job(TranscriptionJobName=job_name)
+            status = job["TranscriptionJob"]["TranscriptionJobStatus"]
+            print(f"  ステータス: {status}")
+            if status == "COMPLETED":
+                break
+            elif status == "FAILED":
+                raise Exception(f"Transcribeエラー: {job}")
+
+        result_obj = s3.get_object(Bucket=TRANSCRIBE_S3_BUCKET, Key=output_key)
+        result = json.loads(result_obj["Body"].read())
+    finally:
+        # 例外発生時もS3に音声・出力JSONを残さない（PIIを最小限に保つ）
+        cleanup_keys = []
+        if uploaded:
+            cleanup_keys.append(s3_key)
+        cleanup_keys += [output_key, "output/.write_access_check_file.temp"]
+        for key in cleanup_keys:
+            try:
+                s3.delete_object(Bucket=TRANSCRIBE_S3_BUCKET, Key=key)
+            except Exception as e:
+                print(f"  ⚠️  S3削除失敗 {key}: {e}", flush=True)
+        if uploaded:
+            print("  S3ファイル削除完了")
 
     items = result["results"]["items"]
     lines, current_speaker, current_text, current_start = [], None, [], "0"
