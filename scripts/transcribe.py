@@ -276,10 +276,12 @@ def merge_transcripts(ja_raw, en_raw):
 def transcribe_mixed(audio_path):
     print("\n🎙 WAV変換中（日本語用）...")
     wav = convert_to_wav(audio_path)
-
-    print("\n📝 日本語文字起こし中（AmiVoice）...")
-    ja_raw = transcribe_japanese(wav)
-    os.remove(wav)
+    try:
+        print("\n📝 日本語文字起こし中（AmiVoice）...")
+        ja_raw = transcribe_japanese(wav)
+    finally:
+        if os.path.exists(wav):
+            os.remove(wav)
 
     print("\n📝 英語文字起こし中（Amazon Transcribe）...")
     en_raw = transcribe_english(audio_path)
@@ -582,9 +584,12 @@ if __name__ == "__main__":
     elif lang == "ja":
         print("\n🎙 WAV変換中...")
         wav = convert_to_wav(audio_file)
-        print("\n📝 文字起こし中（話者数自動推定）...")
-        raw = transcribe_japanese(wav)
-        os.remove(wav)
+        try:
+            print("\n📝 文字起こし中（話者数自動推定）...")
+            raw = transcribe_japanese(wav)
+        finally:
+            if os.path.exists(wav):
+                os.remove(wav)
         open(rawpath(audio_file, "ja"), "w", encoding="utf-8").write(raw)
         print(f"  中間ファイル保存: {rawpath(audio_file, 'ja')}")
         print("\n✨ クレンジング中...")
