@@ -24,6 +24,8 @@ TRANSCRIBE_S3_BUCKET = os.environ.get("TRANSCRIBE_S3_BUCKET", "")
 AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
 PDF_SIZE_LIMIT_MB = 10
 PDF_KEY_PAGES = 3
+POLL_TIMEOUT_SEC = 120 * 60  # 文字起こしジョブ完了待ちの全体タイムアウト
+POLL_INTERVAL_SEC = 5
 
 
 # ----------------------------------------------------------------
@@ -73,8 +75,12 @@ def transcribe_japanese(wav_path):
     session_id = res.json().get("sessionid")
     print(f"  セッションID: {session_id}")
 
+    poll_start = time.time()
     while True:
-        time.sleep(5)
+        if time.time() - poll_start >= POLL_TIMEOUT_SEC:
+            print(f"タイムアウトしました（AmiVoice ジョブ完了待ち {POLL_TIMEOUT_SEC // 60}分）", flush=True)
+            raise TimeoutError(f"AmiVoice ポーリングがタイムアウトしました（session_id={session_id}）")
+        time.sleep(POLL_INTERVAL_SEC)
         result = requests.get(
             f"{AMIVOICE_BASE_URL}/{session_id}",
             headers={"Authorization": f"Bearer {AMIVOICE_API_KEY}"}
@@ -171,8 +177,12 @@ def transcribe_english(audio_path):
         )
         print(f"  ジョブ名: {job_name}")
 
+        poll_start = time.time()
         while True:
-            time.sleep(5)
+            if time.time() - poll_start >= POLL_TIMEOUT_SEC:
+                print(f"タイムアウトしました（AWS Transcribe ジョブ完了待ち {POLL_TIMEOUT_SEC // 60}分）", flush=True)
+                raise TimeoutError(f"AWS Transcribe ポーリングがタイムアウトしました（job_name={job_name}）")
+            time.sleep(POLL_INTERVAL_SEC)
             job = transcribe.get_transcription_job(TranscriptionJobName=job_name)
             status = job["TranscriptionJob"]["TranscriptionJobStatus"]
             print(f"  ステータス: {status}")
