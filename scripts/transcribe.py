@@ -26,6 +26,8 @@ PDF_SIZE_LIMIT_MB = 10
 PDF_KEY_PAGES = 3
 POLL_TIMEOUT_SEC = 120 * 60  # 文字起こしジョブ完了待ちの全体タイムアウト
 POLL_INTERVAL_SEC = 5
+HTTP_UPLOAD_TIMEOUT = (10, 600)  # (connect, read) — 音声アップロード用
+HTTP_STATUS_TIMEOUT = (10, 30)   # (connect, read) — ステータス取得用
 
 
 # ----------------------------------------------------------------
@@ -70,7 +72,7 @@ def transcribe_japanese(wav_path):
         res = requests.post(AMIVOICE_BASE_URL, data={
             "u": AMIVOICE_API_KEY,
             "d": "grammarFileNames=-a-general speakerDiarization=True loggingOptOut=True",
-        }, files={"a": f})
+        }, files={"a": f}, timeout=HTTP_UPLOAD_TIMEOUT)
     res.raise_for_status()
     session_id = res.json().get("sessionid")
     print(f"  セッションID: {session_id}")
@@ -83,7 +85,8 @@ def transcribe_japanese(wav_path):
         time.sleep(POLL_INTERVAL_SEC)
         result = requests.get(
             f"{AMIVOICE_BASE_URL}/{session_id}",
-            headers={"Authorization": f"Bearer {AMIVOICE_API_KEY}"}
+            headers={"Authorization": f"Bearer {AMIVOICE_API_KEY}"},
+            timeout=HTTP_STATUS_TIMEOUT
         ).json()
         status = result.get("status")
         print(f"  ステータス: {status}")
