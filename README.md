@@ -59,15 +59,24 @@ Each role (researcher, writer, reviewer, etc.) acts as a specialized Japanese ed
 ```
 researcher（取材前の背景調査）
   ↓
+planner（取材設計・質問票）
+  ↓
+[取材実施]
+  ↓
 transcriber（文字起こし・クレンジング）
   ↓
-writer（本文執筆）
+writer（本文執筆 → v1）
   ↓
-reviewer（発言照合・品質チェック）
+reviewer（発言照合・🔴/🟡A/🟡B/🟢で分類）
+  ↓
+writer（修正 → v2・v1は残置）
+  ↓
+reviewer（再チェック）
   ↓
 editor（最終調整・納品前確認）
 ```
 
+別ライン：`interviewer`（自己インタビュー・暗黙知の顕在化）
 日次管理：`scheduler`（朝）→ 作業 → `recap`（夜）
 
 ---
@@ -81,13 +90,14 @@ ai-editorial-os/
 │   └── CLAUDE.md          ← Classic版（Claude.ai用・コピペして使う）
 ├── roles/                 ← ロール別ルール定義
 │   ├── researcher.md
+│   ├── planner.md         ← 取材設計・質問票
+│   ├── interviewer.md     ← 自己インタビュー（暗黙知顕在化）
 │   ├── transcriber.md
 │   ├── writer.md
 │   ├── reviewer.md
-│   ├── editor.md
+│   ├── editor.md          ← 最終調整＋オーケストレーション
 │   ├── scheduler.md
 │   ├── recap.md
-│   ├── planner.md         ← 次フェーズ
 │   ├── publisher.md       ← 次フェーズ
 │   ├── performance.md     ← 次フェーズ
 │   └── designer.md        ← 次フェーズ
@@ -191,7 +201,7 @@ cp -r presets/_template presets/your-media-name
 
 ## α版について
 
-> writer / reviewer / transcriber による記事制作ループは実運用済み。scheduler / recap による日次管理も動作確認済み。researcher など一部ロールは環境依存あり。
+> writer / reviewer / transcriber / planner / editor による記事制作ループは実運用済み（v1→v2 ドラフト分離・🔴/🟡A/🟡B/🟢 の4段階分類運用）。scheduler / recap による日次管理も動作確認済み。interviewer は連載・エッセイ・KB執筆向けの自己インタビュー担当として新規追加。researcher は環境依存あり（Playwright MCP）。
 >
 > Issues・PRs 歓迎です。大きなカスタマイズはフォークを推奨します。
 
