@@ -20,6 +20,7 @@
 | interviewer | 自己インタビュー（暗黙知の顕在化） |
 | transcriber | 文字起こし・クレンジング |
 | writer | 本文執筆 |
+| essayist | 悩み共有エッセイ執筆（自分メディア・地声先行） |
 | reviewer | 仕上げパス・発言照合 ※**Agentとして別起動**（下記参照） |
 | editor | 最終調整・オーケストレーション |
 | publisher | 公開処理 |

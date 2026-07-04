@@ -77,6 +77,7 @@ editor（最終調整・納品前確認）
 ```
 
 別ライン：`interviewer`（自己インタビュー・暗黙知の顕在化）
+エッセイ：`interviewer`（不格好を掘る）→ `essayist`（地声で一稿→AIは構成のみ）→ `prompts/essay-review-personas.md`（2ペルソナ・クロスAIレビュー）→ `publisher`
 日次管理：`scheduler`（朝）→ 作業 → `recap`（夜）
 
 ---
@@ -94,6 +95,7 @@ ai-editorial-os/
 │   ├── interviewer.md     ← 自己インタビュー（暗黙知顕在化）
 │   ├── transcriber.md
 │   ├── writer.md
+│   ├── essayist.md        ← 悩み共有エッセイ執筆（自分メディア）
 │   ├── reviewer.md
 │   ├── editor.md          ← 最終調整＋オーケストレーション
 │   ├── scheduler.md
@@ -101,6 +103,8 @@ ai-editorial-os/
 │   ├── publisher.md       ← 次フェーズ
 │   ├── performance.md     ← 次フェーズ
 │   └── designer.md        ← 次フェーズ
+├── prompts/               ← 各AIチャットに読み込ませるプロンプトキット
+│   └── essay-review-personas.md  ← エッセイのクロスレビュー2ペルソナ
 ├── presets/               ← 媒体別プリセット
 │   ├── narrative-a/       ← ナラティブ・記者常体/引用敬体
 │   ├── narrative-b/       ← ナラティブ・記者敬体/引用敬体
@@ -201,7 +205,7 @@ cp -r presets/_template presets/your-media-name
 
 ## α版について
 
-> writer / reviewer / transcriber / planner / editor による記事制作ループは実運用済み（v1→v2 ドラフト分離・🔴/🟡A/🟡B/🟢 の4段階分類運用）。scheduler / recap による日次管理も動作確認済み。interviewer は連載・エッセイ・KB執筆向けの自己インタビュー担当として新規追加。researcher は環境依存あり（Playwright MCP）。
+> writer / reviewer / transcriber / planner / editor による記事制作ループは実運用済み（v1→v2 ドラフト分離・🔴/🟡A/🟡B/🟢 の4段階分類運用）。scheduler / recap による日次管理も動作確認済み。interviewer は連載・エッセイ・KB執筆向けの自己インタビュー担当として新規追加。essayist は個人エッセイ（悩み共有型）の執筆担当として新規追加（クロスレビュー用の `prompts/essay-review-personas.md` を同梱）。researcher は環境依存あり（Playwright MCP）。
 >
 > Issues・PRs 歓迎です。大きなカスタマイズはフォークを推奨します。
 
