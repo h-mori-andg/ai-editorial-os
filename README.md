@@ -78,6 +78,7 @@ editor（最終調整・納品前確認）
 
 別ライン：`interviewer`（自己インタビュー・暗黙知の顕在化）
 エッセイ：`interviewer`（不格好を掘る）→ `essayist`（地声で一稿→AIは構成のみ）→ `prompts/essay-review-personas.md`（2ペルソナ・クロスAIレビュー）→ `publisher`
+小説：`writer`（章ごとに執筆）→ `prompts/fiction-review-personas.md`（4ペルソナ＋ジャンル軸・クロスAIレビュー）→ `publisher`
 日次管理：`scheduler`（朝）→ 作業 → `recap`（夜）
 
 ---
@@ -104,7 +105,8 @@ ai-editorial-os/
 │   ├── performance.md     ← 次フェーズ
 │   └── designer.md        ← 次フェーズ
 ├── prompts/               ← 各AIチャットに読み込ませるプロンプトキット
-│   └── essay-review-personas.md  ← エッセイのクロスレビュー2ペルソナ
+│   ├── essay-review-personas.md    ← エッセイのクロスレビュー2ペルソナ
+│   └── fiction-review-personas.md  ← 小説のクロスレビュー4ペルソナ＋ジャンル軸
 ├── presets/               ← 媒体別プリセット
 │   ├── narrative-a/       ← ナラティブ・記者常体/引用敬体
 │   ├── narrative-b/       ← ナラティブ・記者敬体/引用敬体
