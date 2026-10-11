@@ -3,6 +3,7 @@
 
 anthropic~=0.96
 boto3~=1.40
-requests~=2.32
+requests>=2.32.4,<3  # 2.32.0-2.32.3 は CVE-2024-47081
 pymupdf~=1.26
 python-docx~=1.2
+openpyxl~=3.1

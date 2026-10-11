@@ -70,8 +70,8 @@ writer（本文執筆 → v1）
 reviewer（発言照合・🔴/🟡A/🟡B/🟢で分類）
   ↓
 writer（修正 → v2・v1は残置）
-  ↓
-reviewer（再チェック）
+  ↓ ★ここでユーザーに1回だけ報告
+reviewer（再チェック・ユーザーが求めたときだけ）
   ↓
 editor（最終調整・納品前確認）
 ```
@@ -79,7 +79,7 @@ editor（最終調整・納品前確認）
 別ライン：`interviewer`（自己インタビュー・暗黙知の顕在化）
 エッセイ：`interviewer`（不格好を掘る）→ `essayist`（地声で一稿→AIは構成のみ）→ `prompts/essay-review-personas.md`（2ペルソナ・クロスAIレビュー）→ `publisher`
 小説：`writer`（章ごとに執筆）→ `prompts/fiction-review-personas.md`（4ペルソナ＋ジャンル軸・クロスAIレビュー）→ `publisher`
-事例記事：`writer`（6要素→草稿）→ `prompts/case-study-review-personas.md`（3層＋編集者の4ペルソナ・クロスAIレビュー）→ `publisher`
+事例記事：`prompts/case-briefing-sheet.md`（提供側がライターに渡すブリーフィングシート）→ `writer`（6要素→草稿）→ `prompts/case-study-review-personas.md`（3層＋編集者の4ペルソナ・クロスAIレビュー）→ `publisher`
 日次管理：`scheduler`（朝）→ 作業 → `recap`（夜）
 
 ---
@@ -106,6 +106,7 @@ ai-editorial-os/
 │   ├── performance.md     ← 次フェーズ
 │   └── designer.md        ← 次フェーズ
 ├── prompts/               ← 各AIチャットに読み込ませるプロンプトキット
+│   ├── case-briefing-sheet.md        ← 事例制作のブリーフィングシート（依頼前に提供側が埋める）
 │   ├── case-study-review-personas.md ← 事例記事のクロスレビュー4ペルソナ（3層＋編集者）
 │   ├── essay-review-personas.md    ← エッセイのクロスレビュー2ペルソナ
 │   └── fiction-review-personas.md  ← 小説のクロスレビュー4ペルソナ＋ジャンル軸
@@ -115,7 +116,9 @@ ai-editorial-os/
 │   ├── qa/                ← Q&A対話形式
 │   └── _template/         ← 自分の媒体を追加するテンプレート
 └── scripts/
-    └── transcribe.py      ← 文字起こしスクリプト（AmiVoice + AWS Transcribe）
+    ├── transcribe.py      ← 文字起こしスクリプト（AmiVoice + AWS Transcribe、末尾に🔎要確認リスト）
+    ├── draftcheck.py      ← ドラフトの字数・引用率・冗長重複の機械検査
+    └── quote_attrib_check.py ← カギ括弧の発言の帰属・未解決【要確認】の検査
 ```
 
 ---
@@ -155,7 +158,9 @@ export AWS_REGION="ap-northeast-1"
 ```
 
 AmiVoice API キー取得：https://acp.amivoice.com/  
-AWS S3 バケットは事前に作成しておく（AWS Transcribe の一時保存用）。
+AWS S3 バケットは事前に作成しておく（AWS Transcribe の一時保存用）。  
+音声と出力JSONは処理のあと（エラー時も）自動で削除しますが、強制終了や電源断のときは残ることがあります。バケットは**パブリックアクセスをブロック**し、**ライフサイクルルールで1日後に自動削除**する設定をおすすめします。  
+参照資料（PDF・xlsx など）は解析ライブラリで読み込みます。**出所の分からないファイルは渡さない**でください。
 
 **4. Python依存パッケージのインストール（文字起こしを使う場合）**
 

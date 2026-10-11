@@ -1,24 +1,37 @@
 #!/usr/bin/env python3
-# interview.py [--lang ja|en|mixed] <audio_file> <material1> [material2] ...
+# transcribe.py [--lang ja|en|mixed] <audio_file> <material1> [material2] ...
 #
 # 使い方:
-#   python3 interview.py audio.m4a slides.pdf              # 日本語（デフォルト）
-#   python3 interview.py --lang en audio.m4a slides.pdf    # 英語
-#   python3 interview.py --lang mixed audio.m4a slides.pdf speakers.txt  # 日英混在
+#   python3 transcribe.py audio.m4a slides.pdf              # 日本語（デフォルト）
+#   python3 transcribe.py --lang en audio.m4a slides.pdf    # 英語
+#   python3 transcribe.py --lang mixed audio.m4a slides.pdf speakers.txt  # 日英混在
 #
 # 出力ファイル名:
 #   {base}_transcript_ja.txt / _transcript_en.txt / _transcript_mixed.txt
 #
 # 必要な環境変数:
-#   AMIVOICE_API_KEY        ... AmiVoice マイページのAPPKEY（日本語・mixed）
+#   AMIVOICE_API_KEY        ... AmiVoice マイページのAPPKEY（日本語・mixed）。未設定なら macOS キーチェーン（サービス名 amivoice-api）から読む
 #   TRANSCRIBE_S3_BUCKET    ... AWS Transcribe 用 S3 バケット名
 #   AWS_REGION              ... AWS リージョン（デフォルト: ap-northeast-1）
 #   AWS認証                 ... IAMロール or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
 
 import sys, os, subprocess, json, time, base64, uuid, re, requests, anthropic, boto3
 import concurrent.futures
+import tempfile
 
-AMIVOICE_API_KEY = os.environ.get("AMIVOICE_API_KEY", "")
+def _amivoice_key():
+    # 環境変数がなければ macOS キーチェーン（サービス名 amivoice-api）から読む
+    k = os.environ.get("AMIVOICE_API_KEY", "")
+    if k:
+        return k
+    try:
+        return subprocess.run(["security", "find-generic-password", "-s", "amivoice-api", "-w"],
+                              capture_output=True, text=True, check=True).stdout.strip()
+    except Exception:
+        return ""
+
+
+AMIVOICE_API_KEY = _amivoice_key()
 AMIVOICE_BASE_URL = "https://acp-api-async.amivoice.com/v1/recognitions"
 TRANSCRIBE_S3_BUCKET = os.environ.get("TRANSCRIBE_S3_BUCKET", "")
 AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-1")
@@ -43,11 +56,11 @@ def ms_to_timecode(ms):
 
 def outpath(audio_file, suffix):
     """出力ファイルパス: {base}_transcript_{suffix}.txt"""
-    base = audio_file.rsplit(".", 1)[0]
+    base = os.path.splitext(audio_file)[0]
     return base + f"_transcript_{suffix}.txt"
 
 def rawpath(audio_file, suffix):
-    base = audio_file.rsplit(".", 1)[0]
+    base = os.path.splitext(audio_file)[0]
     return base + f"_raw_{suffix}.txt"
 
 
@@ -55,11 +68,17 @@ def rawpath(audio_file, suffix):
 # Step1（日本語）: 音声ファイルをWAVに変換
 # ----------------------------------------------------------------
 def convert_to_wav(input_path):
-    wav_path = input_path.rsplit(".", 1)[0] + "_tmp.wav"
-    subprocess.run([
-        "ffmpeg", "-y", "-i", input_path,
-        "-ar", "16000", "-ac", "1", "-sample_fmt", "s16", wav_path
-    ], check=True, capture_output=True)
+    # 一時ファイルは tempfile で作る（入力と同じフォルダの既存ファイルを上書き・削除しない）
+    fd, wav_path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+    try:
+        subprocess.run([
+            "ffmpeg", "-y", "-i", input_path,
+            "-ar", "16000", "-ac", "1", "-sample_fmt", "s16", wav_path
+        ], check=True, capture_output=True)
+    except Exception:
+        os.remove(wav_path)
+        raise
     return wav_path
 
 
@@ -75,6 +94,8 @@ def transcribe_japanese(wav_path):
         }, files={"a": f}, timeout=HTTP_UPLOAD_TIMEOUT)
     res.raise_for_status()
     session_id = res.json().get("sessionid")
+    if not session_id:
+        raise RuntimeError(f"AmiVoice がセッションIDを返しませんでした（HTTP {res.status_code}）")
     print(f"  セッションID: {session_id}")
 
     poll_start = time.time()
@@ -93,7 +114,7 @@ def transcribe_japanese(wav_path):
         if status == "completed":
             break
         elif status in ("error", "failed"):
-            raise Exception(f"AmiVoice APIエラー: {result}")
+            raise Exception(f"AmiVoice APIエラー: status={status} code={result.get('code')} message={result.get('message') or result.get('error_message')}")
 
     all_tokens = []
     for seg in result.get("segments", []):
@@ -192,7 +213,7 @@ def transcribe_english(audio_path):
             if status == "COMPLETED":
                 break
             elif status == "FAILED":
-                raise Exception(f"Transcribeエラー: {job}")
+                raise Exception(f"Transcribeエラー: {job['TranscriptionJob'].get('FailureReason', '理由不明')}")
 
         result_obj = s3.get_object(Bucket=TRANSCRIBE_S3_BUCKET, Key=output_key)
         result = json.loads(result_obj["Body"].read())
@@ -341,6 +362,18 @@ def build_material_contents(material_paths):
             doc = _docx.Document(path)
             text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
             contents.append({"type": "text", "text": text})
+        elif ext == "xlsx":
+            import openpyxl as _openpyxl
+            wb = _openpyxl.load_workbook(path, data_only=True)
+            lines = []
+            for sheet in wb.worksheets:
+                lines.append(f"## シート: {sheet.title}")
+                for row in sheet.iter_rows(values_only=True):
+                    row_vals = [str(c) if c is not None else "" for c in row]
+                    if any(v.strip() for v in row_vals):
+                        lines.append("\t".join(row_vals))
+            text = "\n".join(lines)
+            contents.append({"type": "text", "text": text})
         else:
             text = open(path, encoding="utf-8").read()
             contents.append({"type": "text", "text": text})
@@ -358,12 +391,71 @@ MODEL_IDS = {
     "sonnet":   "global.anthropic.claude-sonnet-4-6",
 }
 
-# sonnet45 をプライマリとするフォールバックチェーン（2026-04-11 品質比較でsonnet45が優位のため）
-FALLBACK_CHAIN = ["sonnet45", "sonnet46", "haiku"]
+# クレンジングの既定モデル
+# - sonnet45 は Bedrock で Legacy。後継が jp. で使えるようになったら評価して切り替える
+# - 切り替えは環境変数 TRANSCRIBE_MODEL か --model で（例：TRANSCRIBE_MODEL=sonnet45）
+# - 処理は国内のみ＝ jp. のプロファイルだけを既定・フォールバックに使う（global. は比較試験用・手動指定のみ）
+# - Haiku は品質不足のため自動フォールバックから外した（手動指定は可）
+DEFAULT_MODEL = os.environ.get("TRANSCRIBE_MODEL", "sonnet46")
+FALLBACK_ORDER = ["sonnet46", "sonnet45"]
 
-def cleanse(raw_text, material_paths, lang="ja", num_speakers=None, model="sonnet45", timeout=900):
-    # model が sonnet45 のときだけフォールバックチェーンを使う
-    chain = FALLBACK_CHAIN if model == "sonnet45" else [model]
+# ----------------------------------------------------------------
+# 要確認リスト：人が音声で確かめる箇所を、近くのタイムコードと一緒に出力末尾へ並べる
+#  A. モデルが【要確認】/[CHECK] を付けた語
+#  B. raw にも参照資料にもないのに出力に現れた固有名詞（推測で埋めた可能性）
+# ----------------------------------------------------------------
+_TC_LINE = re.compile(r"^\[([^\]]+?)\s+(\d{1,2}:\d{2}(?::\d{2})?)\]")
+_NOUN = re.compile(r"[ァ-ヶー]{3,}|[A-Za-z][A-Za-z0-9\-\.∫]*[A-Z0-9][A-Za-z0-9\-\.∫]*|[A-Z][a-z]{2,}")
+
+def _material_text(material_paths):
+    out = []
+    for path in material_paths:
+        ext = path.lower().rsplit(".", 1)[-1]
+        try:
+            if ext == "pdf":
+                import fitz
+                with fitz.open(path) as doc:
+                    out.append("\n".join(pg.get_text() for pg in doc))
+            elif ext == "docx":
+                import docx as _docx
+                out.append("\n".join(pp.text for pp in _docx.Document(path).paragraphs))
+            elif ext in ("txt", "md", "csv", "tsv"):
+                out.append(open(path, encoding="utf-8", errors="ignore").read())
+        except Exception:
+            pass
+    return "\n".join(out)
+
+def review_list(final, raw_text, material_paths, limit=80):
+    text = final.split("## ⚠️ オフレコ候補メモ")[0]
+    known = (raw_text + "\n" + _material_text(material_paths)).lower()
+    marks, guesses, seen = [], [], set()
+    tc = "--:--"
+    for line in text.splitlines():
+        m = _TC_LINE.match(line.strip())
+        if m:
+            tc = f"{m.group(1)} {m.group(2)}"
+        body = _TC_LINE.sub("", line.strip())
+        for mm in re.finditer(r"【要確認】|\[CHECK\]", body):
+            st = max(0, mm.start() - 30)
+            marks.append(f"- [{tc}] …{body[st:mm.end()]}")
+        for w in _NOUN.findall(body):
+            key = w.lower().strip(".-")
+            if len(key) < 3 or key in seen or key in known:
+                continue
+            seen.add(key)
+            i = body.find(w); st = max(0, i - 20)
+            guesses.append(f"- [{tc}] {w}　…{body[st:i + len(w) + 15]}…")
+    sec = ["", "---", "", "## 🔎 要確認リスト（記事に使う前に音声で確認）", "",
+           f"### A. 認識に自信がない語（{len(marks)}件）"] + (marks[:limit] or ["- なし"])
+    sec += ["", f"### B. rawにも参照資料にもない固有名詞（推測で補った可能性・{len(guesses)}件）"] + (guesses[:limit] or ["- なし"])
+    if len(marks) > limit or len(guesses) > limit:
+        sec.append(f"※{limit}件を超えた分は省略")
+    return final.rstrip() + "\n" + "\n".join(sec) + "\n"
+
+def cleanse(raw_text, material_paths, lang="ja", num_speakers=None, model=DEFAULT_MODEL, timeout=900,
+            preserve_speakers=False):
+    # 既定系（sonnet46/sonnet45）は互いにフォールバック。それ以外は指定モデルのみ
+    chain = [model] + [m for m in FALLBACK_ORDER if m != model] if model in FALLBACK_ORDER else [model]
 
     if lang == "en":
         system_prompt = """You are a transcript editor. Correct the transcript based on the reference materials provided.
@@ -375,9 +467,11 @@ def cleanse(raw_text, material_paths, lang="ja", num_speakers=None, model="sonne
 
 Rules:
 - Preserve speaker labels [spk_0], [spk_1], etc. and timecodes
-- Fix speech recognition errors using terminology from the reference materials
-- Remove obvious filler words (um, uh, like, you know, etc.)
-- Do not change the meaning
+- Only two kinds of edits are allowed: (1) fix speech recognition errors, (2) remove obvious filler words (um, uh, like, you know, etc.)
+- Do not change wording, word order, or sentence endings. Do not rephrase or tidy up the speaker's sentences (keep repetitions, false starts, idioms)
+- Rewrite technical terms, proper nouns and product names to match the reference materials (glossary / name sheet)
+- Do not replace a proper noun that is not in the reference materials with a guessed word. If you cannot be sure from the sound, keep the original text and add [CHECK] right after it (e.g. "X-forge [CHECK]")
+- Use [CHECK] only for proper nouns (people, companies, products, services, places) and numbers (amounts, counts, years, percentages). For ordinary words, fix from context or keep as is, without a mark
 - Keep the original language (English) — do not translate
 - Group content into paragraphs by topic, with a blank line between paragraphs"""
         user_prompt = f"Based on the reference materials above, correct the following transcript:\n\n{raw_text}"
@@ -397,15 +491,19 @@ Rules:
 - If speaker mapping is provided, add a header section like:
   ＜インタビューについて＞
   登場人物：（mapping from the file）
-- Fix speech recognition errors using terminology from the reference materials
-- Remove obvious filler words (えー、あのー、um、uh etc.)
-- Do not change the meaning or translate between languages
+- Only two kinds of edits are allowed: (1) fix speech recognition errors, (2) remove obvious filler words (えー、あのー、um、uh etc.)
+- Do not change wording, word order, or sentence endings. Do not rephrase or tidy up the speaker's sentences
+- Rewrite technical terms, proper nouns and product names to match the reference materials (glossary / name sheet)
+- Do not replace a proper noun that is not in the reference materials with a guessed word. If unsure, keep the original text and add 【要確認】/[CHECK] right after it
+- Mark only proper nouns and numbers; for ordinary words, fix from context or keep as is, without a mark
+- Do not translate between languages
 - Keep English segments in English, Japanese segments in Japanese
 - Group content into paragraphs by topic, with a blank line between paragraphs"""
         user_prompt = f"Based on the reference materials above, correct and format the following bilingual transcript:\n\n{raw_text}"
 
     else:  # ja
-        multi_speaker = num_speakers is not None and num_speakers > 2
+        # preserve_speakers=True（--from-raw）または話者数指定時は統合ロジックを外す
+        multi_speaker = preserve_speakers or (num_speakers is not None and num_speakers >= 2)
         speaker_merge_rule = "" if multi_speaker else """
 【話者統合】
 - 自動話者分離が誤検出し、同一人物が複数の話者ラベル（例: speaker0/speaker1/speaker2）に分かれている場合がある
@@ -416,7 +514,12 @@ Rules:
 - 統合した場合はファイル冒頭に「※話者ラベル統合: speaker1・speaker2 → speaker0 （自動分離の誤検出を修正）」と明記する
 - 明らかに別人（インタビュアーと被インタビュアー、複数登壇者など）は統合しない
 """
-        speakers_note = f"\n※この音声の話者数は{num_speakers}名です。話者ラベルはそのまま保持してください。" if multi_speaker else ""
+        if num_speakers is not None and num_speakers >= 2:
+            speakers_note = f"\n※この音声の話者数は{num_speakers}名です。話者ラベルはそのまま保持してください。"
+        elif preserve_speakers:
+            speakers_note = "\n※入力の話者ラベルは既存の文字起こしツールが付与したものです。統合・変更せず、そのまま保持してください。"
+        else:
+            speakers_note = ""
         system_prompt = f"""音声文字起こしの校正者です。
 添付の参照資料の表記に従い、専門用語・固有名詞・製品名を正確に補正してください。{speakers_note}
 
@@ -427,10 +530,11 @@ Rules:
 
 ルール：
 - 話者ラベル [speaker0][spk_0] 等とタイムコードは保持
-- 音声認識の誤りを資料の表記で修正
-- 明らかな言い淀み（えー、あのー、um、uh 等）は削除
-- 意味は変えない
-- 補正箇所は変えず、原文に忠実に
+- やってよいのは①音声認識の誤りの修正 ②明らかな言い淀み（えー、あのー、um、uh 等）の削除 の2つだけ
+- 言い回し・語順・語尾は変えない（敬語・口癖・言いさし・繰り返しもそのまま。読みやすく整えない）
+- 専門用語・固有名詞・製品名は、参照資料（カンペ・辞書）の表記に書き換える
+- 参照資料にない固有名詞を、推測で別の語に置き換えない。音から確信できないときは原文の表記のまま残し、直後に【要確認】を付ける（例：「エックスフォージ【要確認】」）
+- 【要確認】を付けるのは、固有名詞（人名・社名・製品名・サービス名・地名）と数字（金額・件数・年・割合）だけ。普通の言葉の聞き取り崩れは文脈から直すか原文のまま残し、印は付けない
 - 話題・内容のまとまりで段落を分け、段落間に空行を入れる
 - 各段落の冒頭には必ず `[話者ラベル タイムコード]` を付ける。その段落の最初のセグメントのタイムコードを使うこと
 {speaker_merge_rule}
@@ -469,6 +573,7 @@ Rules:
             streaming_started = [False]
             last_token_time = [None]
             chunks = []
+            stop_reason = [None]
             INACTIVITY_TIMEOUT = 120  # ストリーミング開始後の無活動タイムアウト
 
             def _call():
@@ -484,6 +589,12 @@ Rules:
                             print(f"  📡 ストリーミング開始（{int(time.time() - start)}秒）", flush=True)
                         last_token_time[0] = time.time()
                         chunks.append(text)
+                    _fm = stream.get_final_message()
+                    stop_reason[0] = _fm.stop_reason
+                    try:
+                        print(f"  📊 トークン：入力{_fm.usage.input_tokens:,}／出力{_fm.usage.output_tokens:,}", flush=True)
+                    except Exception:
+                        pass
                 return "".join(chunks)
 
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -513,7 +624,16 @@ Rules:
             except TimeoutError:
                 raise
             executor.shutdown(wait=False)
-            print(f"  ✅ {m} で完了（{int(time.time() - start)}秒）", flush=True)
+            # 途中停止の検知：終了理由が end_turn 以外、または出力が raw の半分未満なら失敗扱い→フォールバック
+            raw_len = len(re.sub(r"\s", "", raw_text))
+            out_len = len(re.sub(r"\s", "", result_text))
+            if stop_reason[0] != "end_turn" or (raw_len and out_len < raw_len * 0.5):
+                raise RuntimeError(f"出力が途中で止まった可能性（終了理由={stop_reason[0]}・出力{out_len}字／raw{raw_len}字）")
+            print(f"  ✅ {m} で完了（{int(time.time() - start)}秒・出力{out_len}字／raw{raw_len}字）", flush=True)
+            try:
+                result_text = review_list(result_text, raw_text, material_paths)
+            except Exception as e:
+                print(f"  ⚠️ 要確認リストの作成に失敗（本文はそのまま出力）: {str(e)[:80]}", flush=True)
             return result_text, m
         except Exception as e:
             last_error = e
@@ -542,11 +662,11 @@ if __name__ == "__main__":
     parser.add_argument("--lang", choices=["ja", "en", "mixed"], default="ja",
                         help="言語: ja（日本語）/ en（英語）/ mixed（日英混在）")
     parser.add_argument("--speakers", type=int, default=None,
-                        help="話者数（3名以上の場合に指定すると話者統合ロジックをスキップ）")
+                        help="話者数（2名以上を指定すると話者統合ロジックをスキップ）")
     parser.add_argument("--from-raw", metavar="RAW_FILE",
-                        help="既存の文字起こしテキストを渡してクレンジングのみ実行")
-    parser.add_argument("--model", choices=["sonnet46", "sonnet45", "haiku", "sonnet"], default="sonnet45",
-                        help="クレンジングに使うモデル（デフォルト: sonnet45）sonnet45失敗時はsonnet46→haikuへ自動フォールバック")
+                        help="既存の文字起こしテキストを渡してクレンジングのみ実行（話者ラベルは統合せずそのまま保持）")
+    parser.add_argument("--model", choices=sorted(set(MODEL_IDS) | {DEFAULT_MODEL}), default=DEFAULT_MODEL,
+                        help=f"クレンジングに使うモデル（デフォルト: {DEFAULT_MODEL}・環境変数 TRANSCRIBE_MODEL で変更可）sonnet46⇄sonnet45 で自動フォールバック")
     parser.add_argument("--timeout", type=int, default=300,
                         help="APIタイムアウト秒数（デフォルト: 300秒）全モデル失敗時は増やしてください")
     args = parser.parse_args()
@@ -564,7 +684,7 @@ if __name__ == "__main__":
         if not material_files:
             sys.exit("❌ 参照資料を1つ以上指定してください。")
         raw = open(from_raw, encoding="utf-8").read()
-        base = from_raw.rsplit(".", 1)[0]
+        base = os.path.splitext(from_raw)[0]
         # _raw_ が含まれていれば除去してベース名を取得
         base = re.sub(r'_raw_(ja|en|mixed)$', '', base)
         print(f"📄 rawファイル: {os.path.basename(from_raw)}")
@@ -573,7 +693,8 @@ if __name__ == "__main__":
             print(f"   - {os.path.basename(m)}")
         print(f"🤖 モデル: {model}")
         print("\n✨ クレンジング中...")
-        final, used_model = cleanse(raw, material_files, lang=lang, num_speakers=num_speakers, model=model, timeout=timeout)
+        final, used_model = cleanse(raw, material_files, lang=lang, num_speakers=num_speakers, model=model, timeout=timeout,
+                                    preserve_speakers=True)
         model_tag = f"{model}-{used_model}" if used_model != model else model
         out = base + f"_transcript_{lang}_{model_tag}.txt"
         open(out, "w", encoding="utf-8").write(final)
@@ -590,7 +711,7 @@ if __name__ == "__main__":
     material_files = args.material_files
 
     if lang in ("ja", "mixed") and not AMIVOICE_API_KEY:
-        sys.exit("❌ AMIVOICE_API_KEY が未設定です。~/.zshrc を確認してください。")
+        sys.exit("❌ AMIVOICE_API_KEY が未設定です。環境変数か、キーチェーン（amivoice-api）を確認してください。")
 
     lang_label = {"ja": "日本語（AmiVoice）", "en": "英語（Amazon Transcribe）", "mixed": "日英混在（AmiVoice + Amazon Transcribe）"}
     print(f"🌐 言語: {lang_label[lang]}")
@@ -632,7 +753,7 @@ if __name__ == "__main__":
         final, used_model = cleanse(raw, material_files, lang="en", num_speakers=num_speakers, model=model, timeout=timeout)
 
     model_tag = f"{model}-{used_model}" if used_model != model else model
-    base = audio_file.rsplit(".", 1)[0]
+    base = os.path.splitext(audio_file)[0]
     out = base + f"_transcript_{lang}_{model_tag}.txt"
     open(out, "w", encoding="utf-8").write(final)
     print(f"\n✅ 完了: {out}")
